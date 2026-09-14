@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Call Agent - Browser Test</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 700px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f4f6f8;
+        }
+
+        h1 {
+            color: #222;
+        }
+
+        button {
+            padding: 12px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            background: #2563eb;
+            color: white;
+        }
+
+        button:disabled {
+            background: #999;
+        }
+
+        #status {
+            margin: 20px 0;
+            font-weight: bold;
+        }
+
+        #conversation {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            min-height: 200px;
+        }
+
+        .caller {
+            color: #1d4ed8;
+            margin: 12px 0;
+        }
+
+        .ai {
+            color: #047857;
+            margin: 12px 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Privacy-First AI Call Agent</h1>
+
+    <p>
+        This is a browser-only test. No phone number or Twilio is required.
+    </p>
+
+    <button id="startButton">Start Listening</button>
+    <button id="stopButton" disabled>Stop Listening</button>
+    <button id="resetButton">Reset Conversation</button>
+
+    <div id="status">Status: Ready</div>
+
+    <div id="conversation"></div>
+
+    <script>
+        const API_URL = "http://127.0.0.1:8000/incoming-call";
+
+        const callId = "browser-test-001";
+
+        const startButton = document.getElementById("startButton");
+        const stopButton = document.getElementById("stopButton");
+        const resetButton = document.getElementById("resetButton");
+        const statusText = document.getElementById("status");
+        const conversationBox = document.getElementById("conversation");
+
+        const SpeechRecognition =
+            window.SpeechRecognition ||
+            window.webkitSpeechRecognition;
+
+        if (!SpeechRecognition) {
+            statusText.textContent =
+                "Speech recognition is not supported. Use Google Chrome.";
+        }
+
+        const recognition = SpeechRecognition
+            ? new SpeechRecognition()
+            : null;
+
+        if (recognition) {
+            recognition.lang = "en-IN";
+            recognition.continuous = false;
+            recognition.interimResults = false;
+
+            recognition.onstart = function () {
+                statusText.textContent = "Listening...";
+                startButton.disabled = true;
+                stopButton.disabled = false;
+            };
+
+            recognition.onresult = async function (event) {
+                const callerMessage =
+                    event.results[0][0].transcript;
+
+                addMessage("Caller", callerMessage);
+
+                statusText.textContent = "AI is thinking...";
+
+                try {
+                    const response = await fetch(API_URL, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            call_id: callId,
+                            message: callerMessage
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error("API request failed");
+                    }
+
+                    const data = await response.json();
+
+                    addMessage("AI Assistant", data.ai_reply);
+
+                    speak(data.ai_reply);
+
+                    statusText.textContent =
+                        "AI replied. You can speak again.";
+                } catch (error) {
+                    console.error(error);
+
+                    statusText.textContent =
+                        "Error connecting to FastAPI.";
+                }
+            };
+
+            recognition.onerror = function (event) {
+                statusText.textContent =
+                    "Speech recognition error: " + event.error;
+
+                startButton.disabled = false;
+                stopButton.disabled = true;
+            };
+
+            recognition.onend = function () {
+                startButton.disabled = false;
+                stopButton.disabled = true;
+            };
+        }
+
+        startButton.onclick = function () {
+            if (recognition) {
+                recognition.start();
+            }
+        };
+
+        stopButton.onclick = function () {
+            if (recognition) {
+                recognition.stop();
+            }
+        };
+
+        resetButton.onclick = async function () {
+            try {
+                await fetch(
+                    "http://127.0.0.1:8000/reset-conversation/" + callId,
+                    {
+                        method: "POST"
+                    }
+                );
+
+                conversationBox.innerHTML = "";
+
+                statusText.textContent =
+                    "Conversation reset.";
+            } catch (error) {
+                statusText.textContent =
+                    "Could not reset conversation.";
+            }
+        };
+
+        function addMessage(sender, message) {
+            const paragraph = document.createElement("p");
+
+            paragraph.className =
+                sender === "Caller" ? "caller" : "ai";
+
+            paragraph.textContent =
+                sender + ": " + message;
+
+            conversationBox.appendChild(paragraph);
+        }
+
+        function speak(message) {
+            const speech = new SpeechSynthesisUtterance(message);
+
+            speech.lang = "en-IN";
+            speech.rate = 1;
+            speech.pitch = 1;
+
+            window.speechSynthesis.speak(speech);
+        }
+    </script>
+
+</body>
+</html>
